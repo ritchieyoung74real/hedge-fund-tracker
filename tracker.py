@@ -191,6 +191,14 @@ def parse_13f(cik, filing):
                 "putcall": (txt(t, "putCall") or "").upper(),
             })
         break
+    # Some filers (e.g. Duquesne, Baupost) still report values in thousands after the 2023 switch to
+    # dollars. Detect via implied share price: a median under $1/share means the units are thousands.
+    if rows and (filing.get("reportDate") or "9999") >= "2022-12-31":
+        px = sorted(r["value"] / r["shares"] for r in rows
+                    if r["type"] == "SH" and r["shares"] > 0 and r["value"] > 0 and not r["putcall"])
+        if px and px[len(px) // 2] < 1.0:
+            for r in rows:
+                r["value"] *= 1000.0
     return rows, amend_type
 
 
@@ -217,30 +225,37 @@ def quarter_holdings(cik, filings, n_quarters):
     periods = sorted(by_period, reverse=True)[:n_quarters]
     out = []
     for p in periods:
-        fs = sorted(by_period[p], key=lambda f: f["filingDate"])
-        originals = [f for f in fs if f["form"] == "13F-HR"]
-        if not originals:
-            continue
-        base = originals[-1]
-        rows, _ = parse_13f(cik, base)
-        if not rows:  # could not read the holdings table; skip rather than show everything as "new"
-            log(f"  could not read holdings for {p} ({base['accessionNumber']})")
-            continue
-        amended = []
-        for a in fs:
-            if a["form"] != "13F-HR/A" or a["filingDate"] < base["filingDate"]:
+        all_rows, amended, bases = [], [], []
+        # a fund can report under more than one filer CIK (filings tagged "_cik"); combine them per period
+        for fcik in sorted({f.get("_cik", cik) for f in by_period[p]}):
+            fs = sorted([f for f in by_period[p] if f.get("_cik", cik) == fcik], key=lambda f: f["filingDate"])
+            originals = [f for f in fs if f["form"] == "13F-HR"]
+            if not originals:
                 continue
-            arows, atype = parse_13f(cik, a)
-            if not arows:
+            base = originals[-1]
+            rows, _ = parse_13f(fcik, base)
+            if not rows:  # could not read the holdings table; skip rather than show everything as "new"
+                log(f"  could not read holdings for {p} ({base['accessionNumber']})")
                 continue
-            if "RESTATEMENT" in atype:
-                rows = arows
-            else:  # "NEW HOLDINGS": confidential positions revealed later (Berkshire does this)
-                rows = rows + arows
-                amended.append(a["filingDate"])
-        out.append({"period": p, "filed": base["filingDate"], "accession": base["accessionNumber"],
-                    "url": filing_base(cik, base["accessionNumber"]) + "/",
-                    "amended": amended, "holdings": aggregate(rows)})
+            for a in fs:
+                if a["form"] != "13F-HR/A" or a["filingDate"] < base["filingDate"]:
+                    continue
+                arows, atype = parse_13f(fcik, a)
+                if not arows:
+                    continue
+                if "RESTATEMENT" in atype:
+                    rows = arows
+                else:  # "NEW HOLDINGS": confidential positions revealed later (Berkshire does this)
+                    rows = rows + arows
+                    amended.append(a["filingDate"])
+            all_rows += rows
+            bases.append((fcik, base))
+        if not bases:
+            continue
+        bcik, base = max(bases, key=lambda b: (b[0] == cik, b[1]["filingDate"]))
+        out.append({"period": p, "filed": max(b["filingDate"] for _, b in bases), "accession": base["accessionNumber"],
+                    "url": filing_base(bcik, base["accessionNumber"]) + "/",
+                    "amended": amended, "holdings": aggregate(all_rows)})
     return out
 
 
@@ -379,6 +394,7 @@ def t212_flag(name, cls, figi_type, ticker, putcall):
 # ---------------------------------------------------------------- prices
 
 PRICES = {}
+_yahoo_fail = [0]
 
 
 def yahoo_symbol(t):
@@ -391,6 +407,10 @@ def price_history(ticker):
         return PRICES[ticker]
     sym = yahoo_symbol(ticker)
     url = f"https://query1.finance.yahoo.com/v8/finance/chart/{urllib.parse.quote(sym)}?range=2y&interval=1d"
+    path = os.path.join(CACHE, "prices", sym + ".json")
+    if _yahoo_fail[0] >= 5 and not os.path.exists(path):
+        PRICES[ticker] = []  # Yahoo is refusing us (rate limit): stop asking for the rest of this run
+        return []
     try:
         raw = cached(f"prices/{sym}.json", lambda: http_get(url, ua=BROWSER_UA, retries=2), 12)
         j = json.loads(raw)
@@ -398,8 +418,15 @@ def price_history(ticker):
         ts = r.get("timestamp") or []
         closes = r["indicators"]["quote"][0].get("close") or []
         hist = [(dt.datetime.fromtimestamp(t, dt.timezone.utc).strftime("%Y-%m-%d"), c) for t, c in zip(ts, closes) if c]
-    except Exception:
+        _yahoo_fail[0] = 0
+    except Exception as e:
         hist = []
+        bad_ticker = isinstance(e, (KeyError, IndexError, TypeError, ValueError)) or (
+            isinstance(e, urllib.error.HTTPError) and e.code == 404)
+        if not bad_ticker:  # 429 / network failure, not just an unknown symbol
+            _yahoo_fail[0] += 1
+            if _yahoo_fail[0] == 5:
+                log("  Yahoo Finance is not responding (rate limited?); skipping remaining price lookups this run.")
     PRICES[ticker] = hist
     return hist
 
@@ -460,6 +487,8 @@ def parse_form4(cik, f):
         return []
     issuer = txt(root, "issuer/issuerName")
     tick = txt(root, "issuer/issuerTradingSymbol").upper()
+    if int(num(txt(root, "issuer/issuerCik"), 0)) == int(cik):
+        return []  # the fund is the issuer (e.g. Buffett's gifts of BRK shares), not a trade by the fund
     out = []
     for t in root.findall(".//nonDerivativeTransaction"):
         code = txt(t, "transactionCoding/transactionCode")
@@ -667,8 +696,15 @@ def build(args):
             funds_out.append(dict(fund, error="Not found on EDGAR"))
             continue
         filings = recent_filings(sub)
+        extra = []
+        for ocik in fund.get("also_ciks", []):  # older/other filer CIKs for the same fund (13F only)
+            try:
+                extra += [dict(f, _cik=int(ocik)) for f in recent_filings(submissions(ocik))
+                          if f["form"] in ("13F-HR", "13F-HR/A")]
+            except Exception as e:
+                log(f"  could not load extra CIK {ocik} ({e})")
         try:
-            qs = quarter_holdings(fund["cik"], filings, nq)
+            qs = quarter_holdings(fund["cik"], filings + extra, nq)
         except Exception as e:
             log(f"  13F parse error: {e}")
             qs = []

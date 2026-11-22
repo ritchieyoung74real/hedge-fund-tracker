@@ -16,7 +16,7 @@
     {"id": "duquesne", "name": "Duquesne Family Office", "manager": "Stanley Druckenmiller", "cik": 1536411, "match": "DUQUESNE",
      "signal": "high", "style": "Concentrated macro + stock picking",
      "note": "Druckenmiller's personal money. Concentrated and opinionated, so new positions say a lot. He does trade quickly, so some moves may already be reversed by the time the filing appears."},
-    {"id": "pershing", "name": "Pershing Square", "manager": "Bill Ackman", "cik": 1336528, "match": "PERSHING",
+    {"id": "pershing", "name": "Pershing Square", "manager": "Bill Ackman", "cik": 2026053, "also_ciks": [1336528], "match": "PERSHING",
      "signal": "high", "style": "Very concentrated (around 10 stocks), activist",
      "note": "Holds about a dozen stocks for years. Every new position is a big bet, and Ackman usually explains it publicly. Also files fast 13D/Form 4 updates on big stakes."},
     {"id": "appaloosa", "name": "Appaloosa", "manager": "David Tepper", "cik": 1656456, "match": "APPALOOSA",

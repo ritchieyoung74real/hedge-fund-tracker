@@ -25,7 +25,7 @@ A dashboard that shows what 16 well-known investors are buying and selling, usin
 | Low | Renaissance Technologies | quant |
 | Low | Bridgewater | Dalio's firm |
 
-To add or remove a fund, edit `config.json` (you need the fund's SEC "CIK" number, which you can find by searching the fund name at sec.gov/edgar).
+To add or remove a fund, edit `config.json` (you need the fund's SEC "CIK" number, which you can find by searching the fund name at sec.gov/edgar). If a fund moved its filings to a new SEC filer, put the new number in `cik` and the old one in `also_ciks`, as Pershing Square does.
 
 ## Option 1: run it on your Mac
 
