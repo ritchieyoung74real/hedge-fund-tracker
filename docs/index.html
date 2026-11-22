@@ -1,0 +1,433 @@
+<!DOCTYPE html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hedge Fund Tracker</title>
+<style>
+:root {
+  color-scheme: light;
+  --bg: #f5f5f3; --surface: #fcfcfb; --surface-2: #f0efec; --border: #e2e1dc;
+  --text: #0b0b0b; --text-2: #52514e; --muted: #7a7974;
+  --accent: #2a78d6; --accent-soft: #e4effc;
+  --buy: #2a78d6; --buy-soft: #e4effc; --sell: #d03b3b; --sell-soft: #fbe6e6;
+  --good: #0a7d0a; --bad: #c22f2f; --warn-bg: #fff6dd; --warn-border: #f2d27a;
+}
+@media (prefers-color-scheme: dark) {
+  :root:where(:not([data-theme="light"])) {
+    color-scheme: dark;
+    --bg: #121211; --surface: #1a1a19; --surface-2: #242422; --border: #33332f;
+    --text: #f0efec; --text-2: #c3c2b7; --muted: #8f8e86;
+    --accent: #3987e5; --accent-soft: #1d2c40;
+    --buy: #5598e7; --buy-soft: #1c2a3d; --sell: #e66767; --sell-soft: #3a2020;
+    --good: #3fbf3f; --bad: #ef7676; --warn-bg: #2e2714; --warn-border: #6b5617;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #121211; --surface: #1a1a19; --surface-2: #242422; --border: #33332f;
+  --text: #f0efec; --text-2: #c3c2b7; --muted: #8f8e86;
+  --accent: #3987e5; --accent-soft: #1d2c40;
+  --buy: #5598e7; --buy-soft: #1c2a3d; --sell: #e66767; --sell-soft: #3a2020;
+  --good: #3fbf3f; --bad: #ef7676; --warn-bg: #2e2714; --warn-border: #6b5617;
+}
+* { box-sizing: border-box; }
+body { margin: 0; font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  background: var(--bg); color: var(--text); }
+a { color: var(--accent); text-decoration: none; } a:hover { text-decoration: underline; }
+header { background: var(--surface); border-bottom: 1px solid var(--border); position: sticky; top: 0; z-index: 5; }
+.wrap { max-width: 1280px; margin: 0 auto; padding: 0 20px; }
+.top { display: flex; align-items: center; gap: 16px; padding: 12px 0 8px; flex-wrap: wrap; }
+.top h1 { font-size: 18px; margin: 0; letter-spacing: -0.01em; }
+.top .meta { color: var(--muted); font-size: 12px; }
+.spacer { flex: 1; }
+.seg { display: inline-flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+.seg button { border: 0; background: transparent; color: var(--text-2); padding: 5px 12px; font: inherit; cursor: pointer; }
+.seg button.on { background: var(--accent); color: #fff; }
+input[type=search], select { font: inherit; padding: 6px 10px; border: 1px solid var(--border); border-radius: 8px;
+  background: var(--surface); color: var(--text); }
+input[type=search] { width: 220px; }
+nav { display: flex; gap: 2px; overflow-x: auto; }
+nav button { border: 0; background: none; font: inherit; color: var(--text-2); padding: 8px 14px 10px; cursor: pointer;
+  border-bottom: 2px solid transparent; white-space: nowrap; }
+nav button.on { color: var(--text); border-bottom-color: var(--accent); font-weight: 600; }
+main { padding: 20px 0 60px; }
+.disclaimer { background: var(--warn-bg); border: 1px solid var(--warn-border); border-radius: 10px; padding: 10px 14px;
+  margin-bottom: 18px; font-size: 13px; color: var(--text-2); }
+.disclaimer b { color: var(--text); }
+h2 { font-size: 16px; margin: 26px 0 4px; } h2:first-child { margin-top: 0; }
+.sub { color: var(--muted); font-size: 13px; margin: 0 0 10px; }
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin-bottom: 6px; }
+.tile { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; }
+.tile .k { color: var(--muted); font-size: 12px; } .tile .v { font-size: 24px; font-weight: 650; margin-top: 2px; }
+.tile .d { color: var(--text-2); font-size: 12px; }
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
+.tablewrap { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; }
+th, td { padding: 7px 10px; text-align: left; border-bottom: 1px solid var(--border); white-space: nowrap; }
+th { font-size: 12px; font-weight: 600; color: var(--muted); background: var(--surface); position: sticky; top: 0; cursor: pointer; user-select: none; }
+th.num, td.num { text-align: right; }
+tr:last-child td { border-bottom: 0; }
+tbody tr:hover { background: var(--surface-2); }
+td.name { max-width: 260px; overflow: hidden; text-overflow: ellipsis; }
+.tk { font-weight: 650; }
+.small { font-size: 12px; color: var(--muted); }
+.pill { display: inline-flex; align-items: center; gap: 4px; padding: 1px 8px; border-radius: 999px; font-size: 12px; font-weight: 600; }
+.NEW, .ADD, .BUY { background: var(--buy-soft); color: var(--buy); }
+.EXIT, .TRIM, .SELL { background: var(--sell-soft); color: var(--sell); }
+.sig-high { background: var(--buy-soft); color: var(--buy); }
+.sig-medium { background: var(--surface-2); color: var(--text-2); }
+.sig-low { background: var(--surface-2); color: var(--muted); }
+.t212 { font-size: 11px; padding: 1px 6px; border-radius: 6px; border: 1px solid var(--border); color: var(--text-2); cursor: help; }
+.t212.likely { border-color: var(--good); color: var(--good); }
+.t212.no { border-color: var(--bad); color: var(--bad); }
+.pos { color: var(--good); } .neg { color: var(--bad); }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); gap: 12px; }
+.fund { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; cursor: pointer;
+  display: flex; flex-direction: column; gap: 6px; }
+.fund:hover { border-color: var(--accent); }
+.fund h3 { margin: 0; font-size: 15px; } .fund .mgr { color: var(--muted); font-size: 12px; }
+.fund .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.fund .note { color: var(--text-2); font-size: 12.5px; }
+.chips { display: flex; gap: 6px; flex-wrap: wrap; margin: 8px 0 10px; align-items: center; }
+.chip { border: 1px solid var(--border); background: var(--surface); color: var(--text-2); border-radius: 999px; padding: 4px 12px;
+  font: inherit; font-size: 13px; cursor: pointer; }
+.chip.on { background: var(--text); color: var(--surface); border-color: var(--text); }
+.back { margin-bottom: 10px; }
+.detail-head { display: flex; gap: 16px; align-items: flex-start; flex-wrap: wrap; margin-bottom: 8px; }
+.detail-head h2 { margin: 0; font-size: 20px; }
+.bar { position: relative; height: 10px; width: 120px; background: var(--surface-2); border-radius: 4px; display: inline-block; vertical-align: middle; }
+.bar i { position: absolute; top: 0; bottom: 0; border-radius: 4px; }
+.bar .mid { position: absolute; left: 50%; top: -2px; bottom: -2px; width: 1px; background: var(--muted); }
+.empty { padding: 18px; color: var(--muted); }
+.two { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; } .two > div { min-width: 0; }
+td.who { white-space: normal; min-width: 180px; }
+@media (max-width: 900px) { .two { grid-template-columns: 1fr; } input[type=search] { width: 150px; } }
+.help p, .help li { color: var(--text-2); max-width: 820px; }
+.help h3 { margin: 20px 0 4px; font-size: 14px; }
+#tip { position: fixed; pointer-events: none; background: var(--text); color: var(--surface); font-size: 12px; padding: 6px 9px;
+  border-radius: 6px; max-width: 300px; z-index: 50; display: none; }
+.toggle { font-size: 13px; color: var(--text-2); display: inline-flex; gap: 6px; align-items: center; cursor: pointer; }
+</style>
+</head>
+<body>
+<header>
+  <div class="wrap">
+    <div class="top">
+      <h1>Hedge Fund Tracker</h1>
+      <span class="meta" id="meta"></span>
+      <span class="spacer"></span>
+      <input type="search" id="q" placeholder="Search ticker or company…" aria-label="Search ticker or company">
+      <div class="seg" id="ccy" role="group" aria-label="Currency">
+        <button data-c="GBP" class="on">£ GBP</button><button data-c="USD">$ USD</button>
+      </div>
+      <button class="chip" id="theme" title="Switch light/dark">◐</button>
+    </div>
+    <nav id="tabs">
+      <button data-t="overview" class="on">Overview</button>
+      <button data-t="funds">Funds</button>
+      <button data-t="consensus">Consensus</button>
+      <button data-t="fast">Fast signals</button>
+      <button data-t="score">Does copying pay?</button>
+      <button data-t="help">How to use this</button>
+    </nav>
+  </div>
+</header>
+<main class="wrap" id="app"></main>
+<div id="tip"></div>
+<script src="data.js"></script>
+<script>
+(function () {
+const D = window.TRACKER_DATA;
+const app = document.getElementById("app");
+if (!D) { app.innerHTML = '<div class="empty">No data yet. Run the updater first (see README).</div>'; return; }
+
+const FUNDS = Object.fromEntries(D.funds.map(f => [f.id, f]));
+const SIGW = { high: 3, medium: 2, low: 1 };
+const state = { tab: "overview", ccy: localStorage.getItem("ccy") || "GBP", fund: null, filter: "ALL", showOptions: false, q: "", sort: {} };
+const FX = D.gbpusd || 1.27;
+
+// ---------- formatting
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+function money(usd, dp) {
+  if (usd == null || isNaN(usd)) return "–";
+  const v = state.ccy === "GBP" ? usd / FX : usd, sym = state.ccy === "GBP" ? "£" : "$", a = Math.abs(v), s = v < 0 ? "-" : "";
+  if (a >= 1e9) return s + sym + (a / 1e9).toFixed(1) + "bn";
+  if (a >= 1e6) return s + sym + (a / 1e6).toFixed(a >= 1e8 ? 0 : 1) + "m";
+  if (a >= 1e3) return s + sym + (a / 1e3).toFixed(0) + "k";
+  return s + sym + a.toFixed(dp ?? 0);
+}
+function price(r) {
+  if (!r || r.px_now == null) return "–";
+  return state.ccy === "GBP" && r.px_now_gbp != null ? "£" + r.px_now_gbp.toFixed(2) : "$" + r.px_now.toFixed(2);
+}
+function ret(r) {
+  if (!r) return null;
+  return state.ccy === "GBP" && r.ret_gbp != null ? r.ret_gbp : r.ret_usd;
+}
+function pct(v, dp = 1, signed = true) {
+  if (v == null || isNaN(v)) return "–";
+  return (signed && v > 0 ? "+" : "") + v.toFixed(dp) + "%";
+}
+function retCell(r) {
+  const v = ret(r);
+  if (v == null) return '<td class="num small">–</td>';
+  return `<td class="num ${v >= 0 ? "pos" : "neg"}" data-sort="${v}">${pct(v)}</td>`;
+}
+const shares = n => n == null ? "–" : n >= 1e6 ? (n / 1e6).toFixed(2) + "m" : n >= 1e3 ? (n / 1e3).toFixed(0) + "k" : n.toFixed(0);
+const ICON = { NEW: "● New", ADD: "▲ Add", TRIM: "▼ Trim", EXIT: "✕ Exit", BUY: "▲ Buy", SELL: "▼ Sell" };
+const actionPill = a => `<span class="pill ${a}">${ICON[a] || a}</span>`;
+const sigPill = s => `<span class="pill sig-${s}" data-tip="How much weight to give this fund's moves">${s === "high" ? "High signal" : s === "medium" ? "Medium signal" : "Low signal"}</span>`;
+const T212 = { likely: "T212 ✓", unlikely: "T212 ?", unknown: "T212 ?", no: "Not on T212" };
+const t212 = c => c.t212 ? `<span class="t212 ${c.t212}" data-tip="${esc(c.t212_why || "")} (best guess, check the app)">${T212[c.t212]}</span>` : "";
+const tickerCell = c => `<td><span class="tk">${esc(c.ticker || "—")}</span>${c.putcall ? ` <span class="pill sig-low">${esc(c.putcall)}</span>` : ""}</td><td class="name" title="${esc(c.name)}">${esc(c.name)}</td>`;
+const fundLink = id => `<a href="#" data-fund="${id}">${esc(FUNDS[id] ? FUNDS[id].name : id)}</a>`;
+const yahoo = t => t ? `https://finance.yahoo.com/quote/${encodeURIComponent(t.replace(".", "-"))}` : null;
+
+function table(headers, rows, id) {
+  if (!rows.length) return '<div class="empty">Nothing to show.</div>';
+  const th = headers.map((h, i) => `<th class="${h.num ? "num" : ""}" data-col="${i}" data-table="${id || ""}">${h.label}</th>`).join("");
+  return `<div class="tablewrap"><table data-id="${id || ""}"><thead><tr>${th}</tr></thead><tbody>${rows.join("")}</tbody></table></div>`;
+}
+
+// ---------- derived lists
+const fundsWithData = D.funds.filter(f => f.latest);
+function allMoves() {
+  const out = [];
+  for (const f of fundsWithData) for (const c of f.changes) {
+    if (c.putcall && !state.showOptions) continue;
+    out.push(Object.assign({ fund: f.id, signal: f.signal, score: Math.abs(c.move_pct) * SIGW[f.signal] }, c));
+  }
+  return out;
+}
+
+// ---------- views
+function overview() {
+  const period = D.consensus_period;
+  const moves = allMoves().filter(c => c.action !== "HOLD").sort((a, b) => b.score - a.score).slice(0, 25);
+  const since30 = new Date(Date.now() - 30 * 864e5).toISOString().slice(0, 10);
+  const fast30 = D.form4.filter(s => s.filed >= since30).length + D.schedules.filter(s => s.filed >= since30).length;
+  const newCount = fundsWithData.reduce((n, f) => n + f.changes.filter(c => c.action === "NEW" && !c.putcall).length, 0);
+  const latestFiled = fundsWithData.map(f => f.latest.filed).sort().pop();
+  let h = disclaimer();
+  h += `<div class="tiles">
+    <div class="tile"><div class="k">Funds tracked</div><div class="v">${fundsWithData.length}</div><div class="d">${D.funds.length - fundsWithData.length ? (D.funds.length - fundsWithData.length) + " with no data" : "all with 13F data"}</div></div>
+    <div class="tile"><div class="k">Latest quarter</div><div class="v">${quarterName(period)}</div><div class="d">last filing ${esc(latestFiled || "–")}</div></div>
+    <div class="tile"><div class="k">Consensus buys</div><div class="v">${D.consensus_buys.length}</div><div class="d">stocks bought by 2+ funds</div></div>
+    <div class="tile"><div class="k">Fast signals (30 days)</div><div class="v">${fast30}</div><div class="d">Form 4 and 13D/G filings</div></div>
+    <div class="tile"><div class="k">GBP/USD</div><div class="v">${D.gbpusd ? D.gbpusd.toFixed(4) : "–"}</div><div class="d">used for £ figures</div></div>
+  </div>`;
+  h += `<h2>Biggest moves this quarter</h2><p class="sub">Ranked by trade size as a share of the fund, weighted towards the funds that are most worth following. Returns are since the filing became public (${state.ccy}).
+    <label class="toggle"><input type="checkbox" id="optToggle" ${state.showOptions ? "checked" : ""}> include options</label></p>`;
+  h += `<div class="card">` + table([{ label: "Fund" }, { label: "Action" }, { label: "Ticker" }, { label: "Company" }, { label: "Trade size", num: 1 }, { label: "% of fund now", num: 1 }, { label: "Price now", num: 1 }, { label: "Since filing", num: 1 }, { label: "" }],
+    moves.map(c => `<tr>${"<td>" + fundLink(c.fund) + "</td>"}<td>${actionPill(c.action)}</td>${tickerCell(c)}<td class="num" data-sort="${c.traded_value}">${money(c.traded_value)}</td><td class="num" data-sort="${c.weight}">${pct(c.weight, 1, false)}</td><td class="num">${price(c)}</td>${retCell(c)}<td>${t212(c)}</td></tr>`), "moves") + `</div>`;
+  h += `<div class="two"><div><h2>Consensus buys</h2><p class="sub">Bought new or added 10%+ by two or more funds in ${quarterName(period)}.</p><div class="card">${consTable(D.consensus_buys.slice(0, 12), "cb0")}</div></div>`;
+  h += `<div><h2>Latest fast signals</h2><p class="sub">Filed within days of the trade, so much fresher than 13Fs.</p><div class="card">${fastMini()}</div></div></div>`;
+  return h;
+}
+
+function quarterName(p) {
+  if (!p) return "–";
+  const [y, m] = p.split("-").map(Number);
+  return "Q" + Math.ceil(m / 3) + " " + y;
+}
+
+function disclaimer() {
+  return `<div class="disclaimer"><b>Research tool, not financial advice.</b> 13F filings show long US positions up to 45 days after each quarter ends, so moves can be 6 to 20 weeks old and may already be reversed. Shorts, most derivatives and non-US holdings aren't shown. Trading 212 badges are a best guess.</div>`;
+}
+
+function consTable(list, id) {
+  return table([{ label: "Ticker" }, { label: "Company" }, { label: "Funds", num: 1 }, { label: "Who" }, { label: "Total bought", num: 1 }, { label: "Since filing", num: 1 }, { label: "" }],
+    list.map(c => `<tr>${tickerCell(c)}<td class="num" data-sort="${c.count}">${c.count}</td><td class="small who">${c.funds.map(fundLink).join(", ")}</td><td class="num" data-sort="${c.total_traded}">${money(c.total_traded)}</td>${retCell(c)}<td>${t212(c)}</td></tr>`), id);
+}
+
+function fastMini() {
+  const items = D.form4.map(s => ({ filed: s.filed, fund: s.fund, kind: "Form 4", txt: `${s.side === "BUY" ? "▲ Bought" : "▼ Sold"} ${shares(s.shares)} ${esc(s.ticker || s.issuer)} @ $${(s.price || 0).toFixed(2)}`, url: s.url }))
+    .concat(D.schedules.map(s => ({ filed: s.filed, fund: s.fund, kind: s.form, txt: `${s.activist ? "Activist stake" : "Passive 5%+ stake"} in ${esc(s.ticker || s.company)}${s.pct ? " (" + s.pct.toFixed(1) + "%)" : ""}`, url: s.url })))
+    .sort((a, b) => b.filed.localeCompare(a.filed)).slice(0, 12);
+  return table([{ label: "Filed" }, { label: "Fund" }, { label: "Type" }, { label: "What" }],
+    items.map(i => `<tr><td>${i.filed}</td><td>${fundLink(i.fund)}</td><td><a href="${i.url}" target="_blank" rel="noopener">${esc(i.kind)}</a></td><td>${i.txt}</td></tr>`), "fm");
+}
+
+function fundsView() {
+  if (state.fund) return fundDetail(FUNDS[state.fund]);
+  let h = disclaimer() + `<h2>Funds</h2><p class="sub">Click a fund to see every change. The signal rating says how much a move from that fund tends to tell you.</p><div class="grid">`;
+  const order = D.funds.slice().sort((a, b) => SIGW[b.signal] - SIGW[a.signal]);
+  for (const f of order) {
+    const news = (f.changes || []).filter(c => c.action === "NEW" && !c.putcall).slice(0, 4).map(c => c.ticker || c.name).join(", ");
+    const exits = (f.changes || []).filter(c => c.action === "EXIT" && !c.putcall).slice(0, 4).map(c => c.ticker || c.name).join(", ");
+    const q = f.quarters && f.quarters[0];
+    h += `<div class="fund" data-fund="${f.id}">
+      <div class="row"><h3>${esc(f.name)}</h3><span class="spacer"></span>${sigPill(f.signal)}</div>
+      <div class="mgr">${esc(f.manager)} · ${esc(f.style)}</div>
+      ${q ? `<div class="small">${quarterName(f.latest.period)} · ${q.positions} positions · ${money(q.total)} · filed ${f.latest.filed}${f.stale ? " · <b>no recent filing</b>" : ""}</div>` : `<div class="small">${esc(f.error || "No 13F data found")}</div>`}
+      ${news ? `<div class="small"><span class="pill NEW">New</span> ${esc(news)}</div>` : ""}
+      ${exits ? `<div class="small"><span class="pill EXIT">Exited</span> ${esc(exits)}</div>` : ""}
+      <div class="note">${esc(f.note)}</div></div>`;
+  }
+  return h + "</div>";
+}
+
+function fundDetail(f) {
+  const q = f.quarters && f.quarters[0];
+  let h = `<button class="chip back" id="backBtn">← All funds</button><div class="detail-head"><div><h2>${esc(f.name)}</h2><div class="small">${esc(f.manager)} · ${esc(f.style)} · EDGAR name: ${esc(f.edgar_name || "")}</div></div><span class="spacer"></span>${sigPill(f.signal)}</div>`;
+  h += `<p class="sub" style="max-width:820px">${esc(f.note)}</p>`;
+  if (!q) return h + '<div class="empty">No 13F data found for this fund.</div>';
+  const prevTot = f.quarters[1] ? f.quarters[1].total : null;
+  h += `<div class="tiles">
+    <div class="tile"><div class="k">Reported value</div><div class="v">${money(q.total)}</div><div class="d">${prevTot ? pct((q.total / prevTot - 1) * 100) + " vs previous quarter" : ""}</div></div>
+    <div class="tile"><div class="k">Positions</div><div class="v">${q.positions}</div><div class="d">${quarterName(f.latest.period)}</div></div>
+    <div class="tile"><div class="k">Filed</div><div class="v" style="font-size:18px">${f.latest.filed}</div><div class="d"><a href="${f.latest.url}" target="_blank" rel="noopener">View filing on SEC ↗</a>${f.latest.amended && f.latest.amended.length ? " · amended " + f.latest.amended.join(", ") : ""}</div></div>
+    <div class="tile"><div class="k">Changes this quarter</div><div class="v">${f.changes_total}</div><div class="d">${f.changes_total > f.changes.length ? "showing biggest " + f.changes.length : "new, added, trimmed or exited"}</div></div>
+  </div>`;
+  const counts = { ALL: 0, NEW: 0, ADD: 0, TRIM: 0, EXIT: 0 };
+  const rows = f.changes.filter(c => state.showOptions || !c.putcall);
+  rows.forEach(c => { counts.ALL++; counts[c.action]++; });
+  h += `<h2>What changed in ${quarterName(f.latest.period)}</h2><p class="sub">Compared with ${quarterName(f.prev_period)}. Trade size is estimated from the change in shares at the quarter-end price.</p>`;
+  h += `<div class="chips">` + ["ALL", "NEW", "ADD", "TRIM", "EXIT"].map(a => `<button class="chip ${state.filter === a ? "on" : ""}" data-filter="${a}">${a === "ALL" ? "All" : ICON[a]} (${counts[a]})</button>`).join("") +
+    `<label class="toggle" style="margin-left:8px"><input type="checkbox" id="optToggle" ${state.showOptions ? "checked" : ""}> include options</label></div>`;
+  const shown = rows.filter(c => state.filter === "ALL" || c.action === state.filter);
+  h += `<div class="card">` + table([{ label: "Action" }, { label: "Ticker" }, { label: "Company" }, { label: "Shares change", num: 1 }, { label: "Trade size", num: 1 }, { label: "% of fund", num: 1 }, { label: "Was", num: 1 }, { label: "Price now", num: 1 }, { label: "Since filing", num: 1 }, { label: "" }],
+    shown.map(c => `<tr><td>${actionPill(c.action)}</td>${tickerCell(c)}<td class="num" data-sort="${c.share_change_pct ?? 999}">${c.share_change_pct == null ? "new" : pct(c.share_change_pct, 0)}</td><td class="num" data-sort="${c.traded_value}">${money(c.traded_value)}</td><td class="num" data-sort="${c.weight}">${pct(c.weight, 2, false)}</td><td class="num" data-sort="${c.weight_prev}">${pct(c.weight_prev, 2, false)}</td><td class="num">${price(c)}</td>${retCell(c)}<td>${t212(c)}</td></tr>`), "fd") + `</div>`;
+  h += `<h2>Top holdings</h2><p class="sub">Largest positions at the end of ${quarterName(f.latest.period)}.</p><div class="card">` +
+    table([{ label: "Ticker" }, { label: "Company" }, { label: "Value", num: 1 }, { label: "% of fund", num: 1 }, { label: "Price now", num: 1 }, { label: "Since filing", num: 1 }, { label: "" }],
+      f.top.map(c => `<tr>${tickerCell(c)}<td class="num" data-sort="${c.value}">${money(c.value)}</td><td class="num" data-sort="${c.weight}">${pct(c.weight, 1, false)}</td><td class="num">${price(c)}</td>${retCell(c)}<td>${t212(c)}</td></tr>`), "top") + `</div>`;
+  if (f.prev_changes && f.prev_changes.length) {
+    h += `<h2>Previous quarter's moves (${quarterName(f.prev_period)})</h2><p class="sub">Filed ${f.prev_filed}. Useful for judging whether following this fund would have paid off.</p><div class="card">` +
+      table([{ label: "Action" }, { label: "Ticker" }, { label: "Company" }, { label: "Trade size", num: 1 }, { label: "Price now", num: 1 }, { label: "Since filing", num: 1 }, { label: "" }],
+        f.prev_changes.filter(c => !c.putcall).slice(0, 40).map(c => `<tr><td>${actionPill(c.action)}</td>${tickerCell(c)}<td class="num" data-sort="${c.traded_value}">${money(c.traded_value)}</td><td class="num">${price(c)}</td>${retCell(c)}<td>${t212(c)}</td></tr>`), "pc") + `</div>`;
+  }
+  const fs = D.form4.filter(s => s.fund === f.id), sc = D.schedules.filter(s => s.fund === f.id);
+  if (fs.length || sc.length) h += `<h2>Recent fast filings</h2>` + fastTables(fs, sc);
+  return h;
+}
+
+function consensusView() {
+  return disclaimer() + `<h2>Consensus buys · ${quarterName(D.consensus_period)}</h2><p class="sub">Stocks opened or added to (10%+ more shares) by two or more funds. Higher-signal funds count for more in the ranking.</p><div class="card">${consTable(D.consensus_buys, "cb")}</div>
+    <h2>Consensus sells</h2><p class="sub">Stocks exited or cut (10%+ fewer shares) by two or more funds.</p><div class="card">${consTable(D.consensus_sells, "cs")}</div>`;
+}
+
+function fastTables(f4, sc) {
+  let h = `<p class="sub">Form 4: insider trades by holders of 10%+ of a company, filed within 2 business days. Schedule 13D/G: stakes above 5% (13D means the fund may push for changes).</p>`;
+  h += `<h2 style="font-size:14px">Form 4 trades</h2><div class="card">` + table([{ label: "Filed" }, { label: "Fund" }, { label: "Side" }, { label: "Ticker" }, { label: "Company" }, { label: "Shares", num: 1 }, { label: "Price", num: 1 }, { label: "Value", num: 1 }, { label: "Owned after", num: 1 }, { label: "Since filing", num: 1 }, { label: "" }],
+    f4.map(s => `<tr><td>${s.filed}</td><td>${fundLink(s.fund)}</td><td>${actionPill(s.side)}</td><td class="tk">${esc(s.ticker)}</td><td class="name">${esc(s.issuer)}</td><td class="num">${shares(s.shares)}</td><td class="num">$${(s.price || 0).toFixed(2)}</td><td class="num" data-sort="${s.value}">${money(s.value)}</td><td class="num">${shares(s.owned_after)}</td>${retCell(s)}<td><a href="${s.url}" target="_blank" rel="noopener">SEC ↗</a></td></tr>`), "f4") + `</div>`;
+  h += `<h2 style="font-size:14px">13D / 13G stakes</h2><div class="card">` + table([{ label: "Filed" }, { label: "Fund" }, { label: "Form" }, { label: "Ticker" }, { label: "Company" }, { label: "Stake", num: 1 }, { label: "Since filing", num: 1 }, { label: "" }],
+    sc.map(s => `<tr><td>${s.filed}</td><td>${fundLink(s.fund)}</td><td>${s.activist ? '<span class="pill BUY">13D activist</span>' : '<span class="pill sig-medium">13G passive</span>'} <span class="small">${esc(s.form)}</span></td><td class="tk">${esc(s.ticker)}</td><td class="name">${esc(s.company)}</td><td class="num">${s.pct ? s.pct.toFixed(1) + "%" : "–"}</td>${retCell(s)}<td><a href="${s.url}" target="_blank" rel="noopener">SEC ↗</a></td></tr>`), "sc") + `</div>`;
+  return h;
+}
+
+function fastView() {
+  return disclaimer() + `<h2>Fast signals (last 120 days)</h2>` + fastTables(D.form4, D.schedules);
+}
+
+function scoreView() {
+  let h = disclaimer() + `<h2>Does copying pay?</h2><p class="sub">If you had bought each fund's new and increased positions on the day the filing became public, how would those stocks have done since, versus the S&P 500? Returns in ${state.ccy === "GBP" ? "pounds (includes currency moves)" : "dollars"}, equal-weighted, biggest 20 buys per fund. A small sample: treat it as a sense-check, not proof.</p>`;
+  const rows = [];
+  for (const f of fundsWithData) {
+    const s = (f.scorecard || {}).previous || (f.scorecard || {}).latest;
+    if (!s || s.avg_ret_gbp == null) continue;
+    rows.push({ f, s });
+  }
+  rows.sort((a, b) => (b.s.avg_ret_gbp - b.s.spy_ret_gbp) - (a.s.avg_ret_gbp - a.s.spy_ret_gbp));
+  const maxAbs = Math.max(10, ...rows.map(r => Math.abs(r.s.avg_ret_gbp - (r.s.spy_ret_gbp || 0))));
+  h += `<div class="card">` + table([{ label: "Fund" }, { label: "Signal" }, { label: "Buys filed" }, { label: "Stocks", num: 1 }, { label: "Avg return", num: 1 }, { label: "S&P 500", num: 1 }, { label: "Beat S&P by", num: 1 }, { label: "vs S&P 500" }, { label: "Hit rate", num: 1 }],
+    rows.map(({ f, s }) => {
+      const diff = s.avg_ret_gbp - (s.spy_ret_gbp || 0);
+      const w = Math.abs(diff) / maxAbs * 50;
+      const bar = `<span class="bar" data-tip="${esc(f.name)}: ${pct(diff)} vs S&P 500"><span class="mid"></span><i style="${diff >= 0 ? `left:50%;width:${w}%;background:var(--buy)` : `left:${50 - w}%;width:${w}%;background:var(--sell)`}"></i></span>`;
+      return `<tr><td>${fundLink(f.id)}</td><td>${sigPill(f.signal)}</td><td>${s.filed}</td><td class="num">${s.n}</td><td class="num ${s.avg_ret_gbp >= 0 ? "pos" : "neg"}" data-sort="${s.avg_ret_gbp}">${pct(s.avg_ret_gbp)}</td><td class="num">${pct(s.spy_ret_gbp)}</td><td class="num ${diff >= 0 ? "pos" : "neg"}" data-sort="${diff}">${pct(diff)}</td><td>${bar}</td><td class="num" data-sort="${s.hit_rate}" data-tip="Share of the stocks that beat the S&P 500">${pct(s.hit_rate, 0, false)}</td></tr>`;
+    }), "score") + `</div><p class="small">Uses the previous quarter's filing where available, so there's been at least a few months to judge. Returns always shown in GBP here.</p>`;
+  return h;
+}
+
+function searchView() {
+  const q = state.q.trim().toUpperCase();
+  const hits = [];
+  for (const f of fundsWithData) {
+    for (const c of f.top) if ((c.ticker || "").toUpperCase() === q || (c.name || "").toUpperCase().includes(q)) hits.push({ f, c, kind: "Holds" });
+    for (const c of f.changes) if ((c.ticker || "").toUpperCase() === q || (c.name || "").toUpperCase().includes(q)) hits.push({ f, c, kind: c.action });
+  }
+  let h = `<h2>Results for “${esc(state.q)}”</h2><p class="sub">Top-25 holdings and this quarter's changes across all funds.</p><div class="card">`;
+  h += table([{ label: "Fund" }, { label: "What" }, { label: "Ticker" }, { label: "Company" }, { label: "Value", num: 1 }, { label: "% of fund", num: 1 }, { label: "Since filing", num: 1 }, { label: "" }],
+    hits.map(({ f, c, kind }) => `<tr><td>${fundLink(f.id)}</td><td>${kind === "Holds" ? '<span class="pill sig-medium">Top holding</span>' : actionPill(kind)}</td>${tickerCell(c)}<td class="num">${money(c.value)}</td><td class="num">${pct(c.weight, 2, false)}</td>${retCell(c)}<td>${t212(c)}</td></tr>`), "search") + "</div>";
+  return h;
+}
+
+function helpView() {
+  return `<div class="help">${disclaimer()}
+  <h2>How to use this</h2>
+  <h3>What the data is</h3>
+  <p>Every fund managing over $100m of US stocks files a <b>13F</b> with the SEC within 45 days of each quarter end, listing its long positions. This dashboard compares each fund's latest 13F with the one before to show what they bought (<b>New</b>, <b>Add</b>) and sold (<b>Trim</b>, <b>Exit</b>).</p>
+  <h3>How to read a move</h3>
+  <ul>
+    <li><b>New positions and full exits</b> matter more than small adds or trims.</li>
+    <li><b>Trade size as % of fund</b> shows conviction. A 5% new position is a big bet; 0.05% is noise.</li>
+    <li><b>Signal rating</b>: high-signal funds (Berkshire, Druckenmiller, Ackman, Klarman, Li Lu, Akre) hold for years, so their buys are worth studying. Low-signal funds (Renaissance, Point72, Bridgewater) trade too fast or hold too many ETFs for single moves to mean much.</li>
+    <li><b>Consensus</b>: when several strong funds buy the same stock in the same quarter, that's more interesting than one fund alone.</li>
+    <li><b>Since filing</b> is the return from the day the filing became public, which is the earliest you could have copied it.</li>
+  </ul>
+  <h3>Fast signals</h3>
+  <p><b>Form 4</b> filings appear within 2 business days when a fund owning 10%+ of a company trades it (Berkshire's big stakes, for example). <b>13D/13G</b> filings appear when a fund crosses 5% of a company; a 13D means it may push for change.</p>
+  <h3>Trading 212</h3>
+  <p>Badges are a best guess. Most US-listed shares are on Trading 212. US-listed ETFs (SPY, QQQ, GLD and so on) generally <b>can't</b> be bought by UK retail investors, but UCITS versions listed in London usually can. Options aren't offered. Always check the app.</p>
+  <h3>Currency</h3>
+  <p>13F values are in dollars. £ figures use the latest GBP/USD rate, and £ returns include the effect of the dollar moving against the pound since the filing date.</p>
+  <h3>Tips to use it well</h3>
+  <ul>
+    <li>Use it to find ideas, then do your own research on the business and the price you'd pay.</li>
+    <li>Check whether the stock has already run up since the filing.</li>
+    <li>Prefer moves from high-signal funds that are big relative to the fund.</li>
+    <li>Look at the "Does copying pay?" tab to see which funds have actually been worth following lately.</li>
+  </ul>
+  <p class="small">Data: SEC EDGAR (13F, Form 4, Schedule 13D/G), OpenFIGI for tickers, Yahoo Finance for prices and FX. Updated ${esc(D.generated)}.</p></div>`;
+}
+
+// ---------- render & events
+function render() {
+  document.querySelectorAll("#tabs button").forEach(b => b.classList.toggle("on", b.dataset.t === state.tab && !state.q));
+  document.querySelectorAll("#ccy button").forEach(b => b.classList.toggle("on", b.dataset.c === state.ccy));
+  document.getElementById("meta").textContent = `Updated ${D.generated}`;
+  const v = state.q ? searchView() : { overview, funds: fundsView, consensus: consensusView, fast: fastView, score: scoreView, help: helpView }[state.tab]();
+  app.innerHTML = v;
+  applySorts();
+}
+
+function applySorts() {
+  for (const [id, s] of Object.entries(state.sort)) {
+    const t = app.querySelector(`table[data-id="${id}"]`);
+    if (t) sortTable(t, s.col, s.dir);
+  }
+}
+function sortTable(t, col, dir) {
+  const tb = t.tBodies[0], rows = [...tb.rows];
+  const val = r => { const c = r.cells[col]; if (!c) return ""; const d = c.dataset.sort; if (d != null && d !== "") return parseFloat(d); const n = parseFloat(c.textContent.replace(/[£$,%+mkbn]/g, "")); return isNaN(n) ? c.textContent.trim().toLowerCase() : n; };
+  rows.sort((a, b) => { const x = val(a), y = val(b); return (x > y ? 1 : x < y ? -1 : 0) * dir; });
+  rows.forEach(r => tb.appendChild(r));
+}
+
+document.addEventListener("click", e => {
+  const t = e.target.closest("button, a, .fund, th");
+  if (!t) return;
+  if (t.matches("#tabs button")) { state.tab = t.dataset.t; state.fund = null; state.q = ""; document.getElementById("q").value = ""; render(); window.scrollTo(0, 0); }
+  else if (t.matches("#ccy button")) { state.ccy = t.dataset.c; localStorage.setItem("ccy", state.ccy); render(); }
+  else if (t.dataset.fund) { e.preventDefault(); state.tab = "funds"; state.fund = t.dataset.fund; state.filter = "ALL"; state.q = ""; document.getElementById("q").value = ""; render(); window.scrollTo(0, 0); }
+  else if (t.id === "backBtn") { state.fund = null; render(); }
+  else if (t.dataset.filter) { state.filter = t.dataset.filter; render(); }
+  else if (t.id === "theme") { const r = document.documentElement; const dark = r.dataset.theme ? r.dataset.theme === "dark" : matchMedia("(prefers-color-scheme: dark)").matches; r.dataset.theme = dark ? "light" : "dark"; localStorage.setItem("theme", r.dataset.theme); }
+  else if (t.tagName === "TH") {
+    const id = t.dataset.table, col = +t.dataset.col, prev = state.sort[id];
+    state.sort[id] = { col, dir: prev && prev.col === col ? -prev.dir : (t.classList.contains("num") ? -1 : 1) };
+    sortTable(t.closest("table"), col, state.sort[id].dir);
+  }
+});
+document.addEventListener("change", e => { if (e.target.id === "optToggle") { state.showOptions = e.target.checked; render(); } });
+let qt; document.getElementById("q").addEventListener("input", e => { clearTimeout(qt); qt = setTimeout(() => { state.q = e.target.value.length >= 2 ? e.target.value : ""; render(); }, 200); });
+const tip = document.getElementById("tip");
+document.addEventListener("mouseover", e => { const el = e.target.closest("[data-tip]"); if (!el) { tip.style.display = "none"; return; } tip.textContent = el.dataset.tip; tip.style.display = "block"; });
+document.addEventListener("mousemove", e => { if (tip.style.display === "block") { tip.style.left = Math.min(e.clientX + 12, innerWidth - 320) + "px"; tip.style.top = e.clientY + 14 + "px"; } });
+if (localStorage.getItem("theme")) document.documentElement.dataset.theme = localStorage.getItem("theme");
+render();
+})();
+</script>
+</body>
+</html>

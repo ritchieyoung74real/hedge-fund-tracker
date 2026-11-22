@@ -1,0 +1,49 @@
+name: Update tracker
+
+on:
+  schedule:
+    - cron: "0 6 * * *"    # every day 06:00 UTC
+    - cron: "0 22 * * 1-5" # weekdays 22:00 UTC (after US market close)
+  workflow_dispatch: {}     # lets you press "Run workflow" by hand
+
+permissions:
+  contents: write
+
+concurrency:
+  group: tracker
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Restore download cache
+        uses: actions/cache@v4
+        with:
+          path: cache
+          key: edgar-${{ github.run_id }}
+          restore-keys: edgar-
+      - name: Run tracker
+        env:
+          SEC_USER_AGENT: ${{ secrets.SEC_USER_AGENT }}
+          OPENFIGI_API_KEY: ${{ secrets.OPENFIGI_API_KEY }}
+          CALLMEBOT_PHONE: ${{ secrets.CALLMEBOT_PHONE }}
+          CALLMEBOT_APIKEY: ${{ secrets.CALLMEBOT_APIKEY }}
+          TWILIO_ACCOUNT_SID: ${{ secrets.TWILIO_ACCOUNT_SID }}
+          TWILIO_AUTH_TOKEN: ${{ secrets.TWILIO_AUTH_TOKEN }}
+          TWILIO_WHATSAPP_FROM: ${{ secrets.TWILIO_WHATSAPP_FROM }}
+          TWILIO_WHATSAPP_TO: ${{ secrets.TWILIO_WHATSAPP_TO }}
+          DASHBOARD_URL: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/
+        run: python tracker.py
+      - name: Save results
+        run: |
+          git config user.name "tracker-bot"
+          git config user.email "tracker-bot@users.noreply.github.com"
+          git add docs/data.js state.json
+          git diff --cached --quiet || git commit -m "Update data $(date -u +'%Y-%m-%d %H:%M')"
+          git push
