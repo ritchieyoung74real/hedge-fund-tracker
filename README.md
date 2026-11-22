@@ -46,6 +46,13 @@ GitHub can run the updater twice a day and host the dashboard as a web page you 
 4. In the repo: **Actions** tab → enable workflows → **Update tracker** → **Run workflow**.
 5. After about 15 minutes your dashboard is at `https://<your-github-name>.github.io/hedge-fund-tracker/`.
 
+## Share prices (for "since filing" returns)
+
+Free price sites often block automated requests, so for reliable returns get a free key from **Massive** (formerly Polygon.io):
+1. Sign up at massive.com (free plan) and copy your API key from the dashboard.
+2. On GitHub: repo **Settings → Secrets and variables → Actions → New repository secret**, name `MASSIVE_API_KEY`, paste the key.
+3. On your Mac: put `MASSIVE_API_KEY=...` in `alerts.env`.
+
 ## WhatsApp alerts
 
 You get a WhatsApp message when a tracked fund files a new 13F with big moves (new positions or exits of 0.5%+ of the fund, or any trade of 1%+), when 3+ funds buy the same stock, when a fund files a large Form 4 trade (over $5m), or when a fund files a new activist 13D stake. The first run only records a starting point, so you won't get a flood of old news.
@@ -68,7 +75,8 @@ Alert thresholds live in `config.json` under `"alerts"`.
 
 - **SEC EDGAR**: 13F holdings, Form 4 insider trades, Schedule 13D/13G stakes (free, official).
 - **OpenFIGI**: turns the CUSIP codes in filings into tickers (free; an optional free API key makes the first run faster).
-- **Yahoo Finance**: share prices and the GBP/USD rate (free, unofficial).
+- **Share prices**: Massive (formerly Polygon.io) if you add a free key, otherwise Stooq or Yahoo Finance (free, but they often block automated requests).
+- **GBP/USD**: European Central Bank rates via frankfurter.app.
 
 ## Ideas for later
 

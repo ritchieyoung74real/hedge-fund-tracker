@@ -394,41 +394,136 @@ def t212_flag(name, cls, figi_type, ticker, putcall):
 # ---------------------------------------------------------------- prices
 
 PRICES = {}
-_yahoo_fail = [0]
 
 
 def yahoo_symbol(t):
     return t.replace(".", "-").replace("/", "-")
 
 
-def price_history(ticker):
-    """Daily closes for ~2 years from Yahoo Finance (free, unofficial). Cached for 12 hours."""
-    if ticker in PRICES:
-        return PRICES[ticker]
+_fails = defaultdict(int)
+
+
+def _note_fail(src, e):
+    bad_ticker = isinstance(e, (KeyError, IndexError, TypeError, ValueError)) or (
+        isinstance(e, urllib.error.HTTPError) and e.code == 404)
+    if not bad_ticker:  # rate limit / network / blocked, not just an unknown symbol
+        _fails[src] += 1
+        if _fails[src] == 5:
+            log(f"  {src} is not responding (blocked or rate limited); not using it for the rest of this run.")
+
+
+def _stooq(ticker):
+    sym = ticker.lower().replace(".", "-") + ("" if ticker.endswith("=X") else ".us")
+    if ticker == "GBPUSD=X":
+        sym = "gbpusd"
+    raw = cached(f"prices/stooq_{sym}.csv",
+                 lambda: _check_csv(http_get(f"https://stooq.com/q/d/l/?s={urllib.parse.quote(sym)}&i=d", ua=BROWSER_UA, retries=1)), 12)
+    rows = raw.decode("utf-8", "ignore").strip().splitlines()[1:]
+    cutoff = (dt.date.today() - dt.timedelta(days=760)).isoformat()
+    hist = []
+    for line in rows:
+        f = line.split(",")
+        if len(f) >= 5 and f[0] >= cutoff and f[4] not in ("", "null"):
+            hist.append((f[0], float(f[4])))
+    if not hist:
+        raise ValueError("no data")
+    return hist
+
+
+def _check_csv(raw):
+    if not raw[:4].lower().startswith(b"date"):
+        if b"No data" in raw[:200]:
+            raise ValueError("unknown symbol")
+        raise RuntimeError("stooq did not return CSV (blocked or needs a key)")
+    return raw
+
+
+def _yahoo(ticker):
     sym = yahoo_symbol(ticker)
     url = f"https://query1.finance.yahoo.com/v8/finance/chart/{urllib.parse.quote(sym)}?range=2y&interval=1d"
-    path = os.path.join(CACHE, "prices", sym + ".json")
-    if _yahoo_fail[0] >= 5 and not os.path.exists(path):
-        PRICES[ticker] = []  # Yahoo is refusing us (rate limit): stop asking for the rest of this run
-        return []
-    try:
-        raw = cached(f"prices/{sym}.json", lambda: http_get(url, ua=BROWSER_UA, retries=2), 12)
-        j = json.loads(raw)
-        r = j["chart"]["result"][0]
-        ts = r.get("timestamp") or []
-        closes = r["indicators"]["quote"][0].get("close") or []
-        hist = [(dt.datetime.fromtimestamp(t, dt.timezone.utc).strftime("%Y-%m-%d"), c) for t, c in zip(ts, closes) if c]
-        _yahoo_fail[0] = 0
-    except Exception as e:
-        hist = []
-        bad_ticker = isinstance(e, (KeyError, IndexError, TypeError, ValueError)) or (
-            isinstance(e, urllib.error.HTTPError) and e.code == 404)
-        if not bad_ticker:  # 429 / network failure, not just an unknown symbol
-            _yahoo_fail[0] += 1
-            if _yahoo_fail[0] == 5:
-                log("  Yahoo Finance is not responding (rate limited?); skipping remaining price lookups this run.")
+    raw = cached(f"prices/{sym}.json", lambda: http_get(url, ua=BROWSER_UA, retries=1), 12)
+    r = json.loads(raw)["chart"]["result"][0]
+    ts = r.get("timestamp") or []
+    closes = r["indicators"]["quote"][0].get("close") or []
+    hist = [(dt.datetime.fromtimestamp(t, dt.timezone.utc).strftime("%Y-%m-%d"), c) for t, c in zip(ts, closes) if c]
+    if not hist:
+        raise ValueError("no data")
+    return hist
+
+
+def price_history(ticker):
+    """Daily closes (~2 years) for one ticker. Tries Stooq, then Yahoo Finance (both free, no key)."""
+    if ticker in PRICES:
+        return PRICES[ticker]
+    hist = []
+    for src, fn in (("Stooq", _stooq), ("Yahoo Finance", _yahoo)):
+        if _fails[src] >= 5:
+            continue
+        try:
+            hist = fn(ticker)
+            _fails[src] = 0
+            break
+        except Exception as e:
+            _note_fail(src, e)
     PRICES[ticker] = hist
     return hist
+
+
+# --- Massive (formerly Polygon.io): one call returns every US stock's close for a day.
+# Free key at massive.com; set MASSIVE_API_KEY (or POLYGON_API_KEY). Free plan: 5 calls/minute.
+DAYS = {}
+_last_massive = [0.0]
+
+
+def massive_key():
+    return (os.environ.get("MASSIVE_API_KEY") or os.environ.get("POLYGON_API_KEY") or "").strip()
+
+
+def massive_day(date):
+    """{ticker: close} for one date ({} for weekends/holidays). None if unavailable."""
+    if date in DAYS:
+        return DAYS[date]
+    old = date < (dt.date.today() - dt.timedelta(days=3)).isoformat()
+    path = os.path.join(CACHE, "grouped", date + ".json")
+    if os.path.exists(path) and (old or time.time() - os.path.getmtime(path) < 6 * 3600):
+        DAYS[date] = json.load(open(path))
+        return DAYS[date]
+    if _fails["Massive"] >= 3:
+        return None
+    res = None
+    for host in ("api.massive.com", "api.polygon.io"):
+        wait = 12.5 - (time.time() - _last_massive[0])
+        if wait > 0:
+            time.sleep(wait)
+        _last_massive[0] = time.time()
+        try:
+            j = json.loads(http_get(f"https://{host}/v2/aggs/grouped/locale/us/market/stocks/{date}?adjusted=true&apiKey={massive_key()}",
+                                    ua="HedgeFundTracker/1.0", retries=2))
+            res = {r["T"]: r["c"] for r in (j.get("results") or []) if r.get("c")}
+            break
+        except urllib.error.HTTPError as e:
+            if e.code in (401, 403):  # e.g. today's data not on the free plan yet
+                res = None
+                break
+            _note_fail("Massive", e)
+        except Exception as e:
+            _note_fail("Massive", e)
+    if res is None:
+        return None
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    json.dump(res, open(path, "w"))
+    DAYS[date] = res
+    return res
+
+
+def massive_close(ticker, date):
+    """(close, date) on or before date, looking back up to a week."""
+    d = dt.date.fromisoformat(date)
+    for i in range(8):
+        day = massive_day((d - dt.timedelta(days=i)).isoformat())
+        if day:
+            return day.get(ticker), (d - dt.timedelta(days=i)).isoformat()
+    return None, None
 
 
 def close_on(hist, date):
@@ -443,28 +538,33 @@ def close_on(hist, date):
 
 
 def fx_history():
-    """USD per 1 GBP."""
-    hist = price_history("GBPUSD=X")
-    if hist:
-        return hist
-    try:  # fallback: ECB rates via frankfurter.app
-        start = (dt.date.today() - dt.timedelta(days=730)).isoformat()
-        j = json.loads(http_get(f"https://api.frankfurter.app/{start}..?from=GBP&to=USD", ua="HedgeFundTracker/1.0"))
+    """USD per 1 GBP, daily. ECB rates via frankfurter.app, falling back to Stooq/Yahoo."""
+    try:
+        start = (dt.date.today() - dt.timedelta(days=760)).isoformat()
+        j = json.loads(cached("prices/fx_gbpusd.json", lambda: http_get(
+            f"https://api.frankfurter.app/{start}..?from=GBP&to=USD", ua="HedgeFundTracker/1.0"), 6))
         hist = sorted((d, v["USD"]) for d, v in j["rates"].items())
+        if hist:
+            return hist
     except Exception:
-        hist = []
-    PRICES["GBPUSD=X"] = hist
-    return hist
+        pass
+    return price_history("GBPUSD=X")
 
 
 def returns_since(ticker, date, fx):
-    hist = price_history(ticker) if ticker else []
-    if not hist:
+    if not ticker or not date:
         return None
-    p0, p1 = close_on(hist, date), hist[-1][1]
-    if not p0:
+    if massive_key():
+        p0, _ = massive_close(ticker, date)
+        p1, asof = massive_close(ticker, dt.date.today().isoformat())
+    else:
+        hist = price_history(ticker)
+        if not hist:
+            return None
+        p0, p1, asof = close_on(hist, date), hist[-1][1], hist[-1][0]
+    if not p0 or not p1:
         return None
-    out = {"px_then": p0, "px_now": p1, "ret_usd": (p1 / p0 - 1) * 100, "asof": hist[-1][0]}
+    out = {"px_then": p0, "px_now": p1, "ret_usd": (p1 / p0 - 1) * 100, "asof": asof}
     f0, f1 = close_on(fx, date), (fx[-1][1] if fx else None)
     if f0 and f1:
         out["px_now_gbp"] = p1 / f1
@@ -807,7 +907,8 @@ def build(args):
     if not args.no_prices:
         log("- Prices and returns since filing")
         fx = fx_history()
-        spy = price_history("SPY")
+        spy = True
+        log("  using Massive daily prices" if massive_key() else "  using Stooq / Yahoo Finance prices (set MASSIVE_API_KEY for a more reliable source)")
         priced = 0
         for f in funds_out:
             if not f.get("latest"):
